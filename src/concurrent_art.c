@@ -43,6 +43,7 @@ static art_node* alloc_node(uint8_t type) {
             abort();
     }
     n->type = type;
+    pthread_rwlock_init(&n->lock,NULL);
     return n;
 }
 
