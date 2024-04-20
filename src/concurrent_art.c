@@ -76,6 +76,9 @@ static void destroy_node(art_node *n) {
         art_node48 *p3;
         art_node256 *p4;
     } p;
+
+    pthread_rwlock_wrlock(&n->lock);
+
     switch (n->type) {
         case NODE4:
             p.p1 = (art_node4*)n;
@@ -112,6 +115,9 @@ static void destroy_node(art_node *n) {
             abort();
     }
 
+    pthread_rwlock_unlock(&n->lock);
+    pthread_rwlock_destroy(&n->lock);
+
     // Free ourself on the way up
     free(n);
 }
@@ -144,19 +150,23 @@ static art_node** find_child(art_node *n, unsigned char c) {
     switch (n->type) {
         case NODE4:
             p.p1 = (art_node4*)n;
+            pthread_rwlock_rdlock(&p.p1->n.lock);
             for (i=0 ; i < n->num_children; i++) {
 		/* this cast works around a bug in gcc 5.1 when unrolling loops
 		 * https://gcc.gnu.org/bugzilla/show_bug.cgi?id=59124
 		 */
-                if (((unsigned char*)p.p1->keys)[i] == c)
+                if (((unsigned char*)p.p1->keys)[i] == c){
+                    pthread_rwlock_unlock(&p.p1->n.lock);
                     return &p.p1->children[i];
+                }
             }
+            pthread_rwlock_unlock(&p.p1->n.lock);
             break;
 
         {
         case NODE16:
             p.p2 = (art_node16*)n;
-
+            pthread_rwlock_rdlock(&p.p2->n.lock);
             // support non-86 architectures
             #ifdef __i386__
                 // Compare the key to all 16 stored keys
@@ -196,22 +206,35 @@ static art_node** find_child(art_node *n, unsigned char c) {
              * return the pointer match using ctz to get
              * the index.
              */
-            if (bitfield)
+            if (bitfield){
+                pthread_rwlock_unlock(&p.p2->n.lock);
                 return &p.p2->children[__builtin_ctz(bitfield)];
+            }
+                pthread_rwlock_unlock(&p.p2->n.lock);
+
             break;
         }
 
         case NODE48:
             p.p3 = (art_node48*)n;
             i = p.p3->keys[c];
-            if (i)
+            if (i){
+                pthread_rwlock_unlock(&p.p3->n.lock);
                 return &p.p3->children[i-1];
+            }
+            pthread_rwlock_unlock(&p.p3->n.lock);
+
+
             break;
 
         case NODE256:
             p.p4 = (art_node256*)n;
-            if (p.p4->children[c])
+            pthread_rwlock_rdlock(&p.p4->n.lock);
+            if (p.p4->children[c]){
+                pthread_rwlock_unlock(&p.p4->n.lock);
                 return &p.p4->children[c];
+            }
+            pthread_rwlock_unlock(&p.p4->n.lock);
             break;
 
         default:
