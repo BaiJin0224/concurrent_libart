@@ -297,16 +297,21 @@ void* art_search(const art_tree *t, const unsigned char *key, int key_len) {
             }
             return NULL;
         }
+        pthread_rwlock_rdlock(&n->lock);
 
         // Bail if the prefix does not match
         if (n->partial_len) {
             prefix_len = check_prefix(n, key, key_len, depth);
-            if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len))
+            if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len)){
+                pthread_rwlock_unlock(&n->lock);
                 return NULL;
+            }
+
             depth = depth + n->partial_len;
         }
 
         // Recursively search
+        pthread_rwlock_unlock(&n->lock);
         child = find_child(n, key[depth]);
         n = (child) ? *child : NULL;
         depth++;
@@ -408,6 +413,7 @@ static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *
     (void)ref;
     n->n.num_children++;
     n->children[c] = (art_node*)child;
+    pthread_rwlock_unlock(&n->n.lock);
 }
 
 static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *child) {
@@ -417,6 +423,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
         n->children[pos] = (art_node*)child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
+        pthread_rwlock_unlock(&n->n.lock);
     } else {
         art_node256 *new_node = (art_node256*)alloc_node(NODE256);
         for (int i=0;i<256;i++) {
@@ -426,7 +433,10 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
         }
         copy_header((art_node*)new_node, (art_node*)n);
         *ref = (art_node*)new_node;
+        pthread_rwlock_unlock(&n->n.lock);
+        pthread_rwlock_destroy(&n->n.lock);
         free(n);
+        pthread_rwlock_wrlock(&new_node->n.lock);
         add_child256(new_node, ref, c, child);
     }
 }
@@ -482,7 +492,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
         n->keys[idx] = c;
         n->children[idx] = (art_node*)child;
         n->n.num_children++;
-
+        pthread_rwlock_unlock(&n->n.lock);
     } else {
         art_node48 *new_node = (art_node48*)alloc_node(NODE48);
 
@@ -494,7 +504,10 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
         }
         copy_header((art_node*)new_node, (art_node*)n);
         *ref = (art_node*)new_node;
+        pthread_rwlock_unlock(&n->n.lock);
+        pthread_rwlock_destroy(&n->n.lock);
         free(n);
+        pthread_rwlock_wrlock(&new_node->n.lock);
         add_child48(new_node, ref, c, child);
     }
 }
@@ -515,7 +528,7 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
         n->keys[idx] = c;
         n->children[idx] = (art_node*)child;
         n->n.num_children++;
-
+        pthread_rwlock_unlock(&n->n.lock);
     } else {
         art_node16 *new_node = (art_node16*)alloc_node(NODE16);
 
@@ -526,7 +539,10 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
                 sizeof(unsigned char)*n->n.num_children);
         copy_header((art_node*)new_node, (art_node*)n);
         *ref = (art_node*)new_node;
+        pthread_rwlock_unlock(&n->n.lock);
+        pthread_rwlock_destroy(&n->n.lock);
         free(n);
+        pthread_rwlock_wrlock(&new_node->n.lock);
         add_child16(new_node, ref, c, child);
     }
 }
@@ -591,6 +607,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
 
         // New value, we must split the leaf into a node4
         art_node4 *new_node = (art_node4*)alloc_node(NODE4);
+        pthread_rwlock_wrlock(&new_node->n.lock);
 
         // Create a new leaf
         art_leaf *l2 = make_leaf(key, key_len, value);
@@ -602,21 +619,25 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Add the leafs to the new node4
         *ref = (art_node*)new_node;
         add_child4(new_node, ref, l->key[depth+longest_prefix], SET_LEAF(l));
+        pthread_rwlock_wrlock(&new_node->n.lock);
         add_child4(new_node, ref, l2->key[depth+longest_prefix], SET_LEAF(l2));
         return NULL;
     }
 
+    pthread_rwlock_wrlock(&n->lock);
     // Check if given node has a prefix
     if (n->partial_len) {
         // Determine if the prefixes differ, since we need to split
         int prefix_diff = prefix_mismatch(n, key, key_len, depth);
         if ((uint32_t)prefix_diff >= n->partial_len) {
             depth += n->partial_len;
+            pthread_rwlock_unlock(&n->lock);
             goto RECURSE_SEARCH;
         }
 
         // Create a new node
         art_node4 *new_node = (art_node4*)alloc_node(NODE4);
+        pthread_rwlock_wrlock(&new_node->n.lock);
         *ref = (art_node*)new_node;
         new_node->n.partial_len = prefix_diff;
         memcpy(new_node->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
@@ -637,11 +658,13 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
 
         // Insert the new leaf
         art_leaf *l = make_leaf(key, key_len, value);
+        pthread_rwlock_wrlock(&new_node->n.lock);
         add_child4(new_node, ref, key[depth+prefix_diff], SET_LEAF(l));
         return NULL;
     }
 
 RECURSE_SEARCH:;
+    pthread_rwlock_unlock(&n->lock);
 
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
@@ -651,6 +674,7 @@ RECURSE_SEARCH:;
 
     // No child, node goes within us
     art_leaf *l = make_leaf(key, key_len, value);
+    pthread_rwlock_wrlock(&n->lock);
     add_child(n, ref, key[depth], SET_LEAF(l));
     return NULL;
 }

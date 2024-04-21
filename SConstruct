@@ -13,7 +13,7 @@ if "SHLINKFLAGS" not in os.environ:
 	env_with_err['SHLINKFLAGS'] = '-shared'
 #print "CCCOM is:", env_with_err.subst('$CCCOM')
 
-shared_object = env_with_err.SharedLibrary('art', ['src/art.c'])
+shared_object = env_with_err.SharedLibrary('concurrent_art', ['src/concurrent_art.c'])
 test_runner = env_with_err.Program('test_runner',
             ["tests/runner.c"],
             LIBS=["check", "art"],
