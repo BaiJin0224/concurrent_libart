@@ -210,6 +210,24 @@ int art_iter(art_tree *t, art_callback cb, void *data);
  */
 int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, art_callback cb, void *data);
 
+/**
+ * Finds the value that is less than but closest to the specified key.
+ * @arg t The tree to search in
+ * @arg key The key to compare against
+ * @arg key_len The length of the key
+ * @return The closest lesser value pointer, or NULL if no such item exists.
+ */
+void *art_find_less(art_tree *t, const unsigned char *key, int key_len);
+
+/**
+ * Finds the value that is greater than but closest to the specified key.
+ * @arg t The tree to search in
+ * @arg key The key to compare against
+ * @arg key_len The length of the key
+ * @return The closest greater value pointer, or NULL if no such item exists.
+ */
+void *art_find_more(art_tree *t, const unsigned char *key, int key_len);
+
 #ifdef __cplusplus
 }
 #endif
