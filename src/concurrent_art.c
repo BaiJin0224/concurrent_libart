@@ -909,18 +909,25 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
     }
 
     int idx, res;
+    pthread_rwlock_rdlock(&n->lock);
     switch (n->type) {
         case NODE4:
             for (int i=0; i < n->num_children; i++) {
                 res = recursive_iter(((art_node4*)n)->children[i], cb, data);
-                if (res) return res;
+                if (res){
+                    pthread_rwlock_unlock(&n->lock);
+                    return res;
+                }
             }
             break;
 
         case NODE16:
             for (int i=0; i < n->num_children; i++) {
                 res = recursive_iter(((art_node16*)n)->children[i], cb, data);
-                if (res) return res;
+                if (res){
+                    pthread_rwlock_unlock(&n->lock);
+                    return res;
+                }
             }
             break;
 
@@ -930,7 +937,10 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
                 if (!idx) continue;
 
                 res = recursive_iter(((art_node48*)n)->children[idx-1], cb, data);
-                if (res) return res;
+                if (res){
+                    pthread_rwlock_unlock(&n->lock);
+                    return res;
+                }
             }
             break;
 
@@ -938,13 +948,17 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
             for (int i=0; i < 256; i++) {
                 if (!((art_node256*)n)->children[i]) continue;
                 res = recursive_iter(((art_node256*)n)->children[i], cb, data);
-                if (res) return res;
+                if (res){
+                    pthread_rwlock_unlock(&n->lock);
+                    return res;
+                }
             }
             break;
 
         default:
             abort();
     }
+    pthread_rwlock_unlock(&n->lock);
     return 0;
 }
 
