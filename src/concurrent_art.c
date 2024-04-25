@@ -719,6 +719,8 @@ static void remove_child256(art_node256 *n, art_node **ref, unsigned char c) {
     // trashing if we sit on the 48/49 boundary
     if (n->n.num_children == 37) {
         art_node48 *new_node = (art_node48*)alloc_node(NODE48);
+        pthread_rwlock_unlock(&n->n.lock);
+        pthread_rwlock_destroy(&n->n.lock);
         *ref = (art_node*)new_node;
         copy_header((art_node*)new_node, (art_node*)n);
 
@@ -731,6 +733,8 @@ static void remove_child256(art_node256 *n, art_node **ref, unsigned char c) {
             }
         }
         free(n);
+    }else{
+        pthread_rwlock_unlock(&n->n.lock);
     }
 }
 
@@ -742,6 +746,8 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
 
     if (n->n.num_children == 12) {
         art_node16 *new_node = (art_node16*)alloc_node(NODE16);
+        pthread_rwlock_unlock(&n->n.lock);
+        pthread_rwlock_destroy(&n->n.lock);
         *ref = (art_node*)new_node;
         copy_header((art_node*)new_node, (art_node*)n);
 
@@ -755,6 +761,8 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
             }
         }
         free(n);
+    }else{
+        pthread_rwlock_unlock(&n->n.lock);
     }
 }
 
@@ -766,11 +774,15 @@ static void remove_child16(art_node16 *n, art_node **ref, art_node **l) {
 
     if (n->n.num_children == 3) {
         art_node4 *new_node = (art_node4*)alloc_node(NODE4);
+        pthread_rwlock_unlock(&n->n.lock);
+        pthread_rwlock_destroy(&n->n.lock);
         *ref = (art_node*)new_node;
         copy_header((art_node*)new_node, (art_node*)n);
         memcpy(new_node->keys, n->keys, 4);
         memcpy(new_node->children, n->children, 4*sizeof(void*));
         free(n);
+    }else{
+        pthread_rwlock_unlock(&n->n.lock);
     }
 }
 
@@ -800,8 +812,12 @@ static void remove_child4(art_node4 *n, art_node **ref, art_node **l) {
             memcpy(child->partial, n->n.partial, min(prefix, MAX_PREFIX_LEN));
             child->partial_len += n->n.partial_len + 1;
         }
+        pthread_rwlock_unlock(&n->n.lock);
+        pthread_rwlock_destroy(&n->n.lock);
         *ref = child;
         free(n);
+    }else{
+        pthread_rwlock_unlock(&n->n.lock);
     }
 }
 
@@ -833,16 +849,17 @@ static art_leaf* recursive_delete(art_node *n, art_node **ref, const unsigned ch
         }
         return NULL;
     }
-
+    pthread_rwlock_wrlock(&n->lock);
     // Bail if the prefix does not match
     if (n->partial_len) {
         int prefix_len = check_prefix(n, key, key_len, depth);
         if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len)) {
+            pthread_rwlock_unlock(&n->lock);
             return NULL;
         }
         depth = depth + n->partial_len;
     }
-
+    pthread_rwlock_unlock(&n->lock);
     // Find child node
     art_node **child = find_child(n, key[depth]);
     if (!child) return NULL;
@@ -851,6 +868,7 @@ static art_leaf* recursive_delete(art_node *n, art_node **ref, const unsigned ch
     if (IS_LEAF(*child)) {
         art_leaf *l = LEAF_RAW(*child);
         if (!leaf_matches(l, key, key_len, depth)) {
+            pthread_rwlock_wrlock(&n->lock);
             remove_child(n, ref, key[depth], child);
             return l;
         }
