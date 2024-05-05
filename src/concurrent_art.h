@@ -25,6 +25,14 @@ extern "C" {
 # endif
 #endif
 
+typedef struct {
+    const unsigned char *target_key;
+    int target_key_len;
+    const unsigned char *found_key;
+    uint32_t found_key_len;
+    void *value;
+} art_search_ctx;
+
 typedef int(*art_callback)(void *data, const unsigned char *key, uint32_t key_len, void *value);
 
 /**

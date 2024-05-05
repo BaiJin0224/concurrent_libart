@@ -1053,3 +1053,54 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     }
     return 0;
 }
+
+static int find_less_callback(void *data, const unsigned char *key, uint32_t key_len, void *value) {
+    art_search_ctx *ctx = (art_search_ctx *) data;
+    if (memcmp(key, ctx->target_key, min(key_len, ctx->target_key_len)) < 0) {
+        if (!ctx->value || memcmp(key, ctx->found_key, ctx->found_key_len) > 0) {
+            ctx->value = value;
+            ctx->found_key = key;
+            ctx->found_key_len = key_len;
+        }
+    }
+    return 0;  
+}
+
+static int find_more_callback(void *data, const unsigned char *key, uint32_t key_len, void *value) {
+    art_search_ctx *ctx = (art_search_ctx *) data;
+    if (memcmp(key, ctx->target_key, min(key_len, ctx->target_key_len)) > 0) {
+        if (!ctx->value || memcmp(key, ctx->found_key, ctx->found_key_len) < 0) {
+            ctx->value = value;
+            ctx->found_key = key;
+            ctx->found_key_len = key_len;
+        }
+    }
+    return 0;
+}
+
+
+/**
+ * Finds the value that is less than but closest to the specified key.
+ * @arg t The tree to search in
+ * @arg key The key to compare against
+ * @arg key_len The length of the key
+ * @return The closest lesser value pointer, or NULL if no such item exists.
+ */
+void *art_find_less(art_tree *t, const unsigned char *key, int key_len) {
+    art_search_ctx ctx = {key, key_len, NULL, 0, NULL};
+    art_iter(t, find_less_callback, &ctx);
+    return ctx.value;
+}
+
+/**
+ * Finds the value that is greater than but closest to the specified key.
+ * @arg t The tree to search in
+ * @arg key The key to compare against
+ * @arg key_len The length of the key
+ * @return The closest greater value pointer, or NULL if no such item exists.
+ */
+void *art_find_more(art_tree *t, const unsigned char *key, int key_len) {
+    art_search_ctx ctx = {key, key_len, NULL, 0, NULL};
+    art_iter(t, find_more_callback, &ctx);
+    return ctx.value;
+}
